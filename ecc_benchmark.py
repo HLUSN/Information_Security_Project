@@ -8,6 +8,7 @@ Metrics : Execution time (ms), point operation count, memory usage (bytes)
 Iterations: 500
 """
 
+import os
 import time
 import random
 import tracemalloc
@@ -283,7 +284,7 @@ def verify_correctness(curve, trials=20):
 def benchmark(curve, iterations=500, w=4):
     """
     Run 'iterations' timed trials for both algorithms on 'curve'.
-    Returns a dict with timing lists and operation counts.
+    Returns a dict with timing lists, operation counts, and memory usage.
     """
     print(f"\n{'─'*55}")
     print(f"  Benchmarking — {curve.name}  ({iterations} iterations, w={w})")
@@ -292,6 +293,7 @@ def benchmark(curve, iterations=500, w=4):
     da_times, wnaf_times = [], []
     da_adds, da_dubs = [], []
     wnaf_adds, wnaf_dubs = [], []
+    da_memory, wnaf_memory = [], []  # Track peak memory usage for each iteration
 
     for i in range(iterations):
         k = random.randint(2, curve.n - 1)
@@ -307,6 +309,7 @@ def benchmark(curve, iterations=500, w=4):
         da_times.append((t1 - t0) * 1000)      # ms
         da_adds.append(a)
         da_dubs.append(d)
+        da_memory.append(peak_da)               # Record memory usage (bytes)
 
         # ── wNAF ────────────────────────────────────────────────────
         tracemalloc.start()
@@ -319,6 +322,7 @@ def benchmark(curve, iterations=500, w=4):
         wnaf_times.append((t1 - t0) * 1000)
         wnaf_adds.append(a)
         wnaf_dubs.append(d)
+        wnaf_memory.append(peak_wnaf)           # Record memory usage (bytes)
 
         if (i + 1) % 100 == 0:
             print(f"    {i+1}/{iterations} done …")
@@ -330,11 +334,16 @@ def benchmark(curve, iterations=500, w=4):
         "da_dubs"    : da_dubs,
         "wnaf_adds"  : wnaf_adds,
         "wnaf_dubs"  : wnaf_dubs,
+        "da_memory"  : da_memory,               # Peak memory per iteration (bytes)
+        "wnaf_memory": wnaf_memory,             # Peak memory per iteration (bytes)
     }
 
 
 def print_summary(data, curve_name):
-    """Print a formatted statistics table for one curve."""
+    """
+    Print a formatted statistics table for one curve.
+    Includes timing, operation counts, memory usage, and improvement percentages.
+    """
     def stats(lst):
         return {
             "mean"  : statistics.mean(lst),
@@ -345,27 +354,34 @@ def print_summary(data, curve_name):
 
     da   = stats(data["da_times"])
     wn   = stats(data["wnaf_times"])
-    improvement = (da["mean"] - wn["mean"]) / da["mean"] * 100
+    da_mem = stats(data["da_memory"])
+    wn_mem = stats(data["wnaf_memory"])
+
+    # Calculate improvement percentages
+    time_improvement = (da["mean"] - wn["mean"]) / da["mean"] * 100
     add_reduction = (
         (statistics.mean(data["da_adds"]) - statistics.mean(data["wnaf_adds"]))
         / statistics.mean(data["da_adds"]) * 100
     )
+    memory_overhead = (wn_mem["mean"] - da_mem["mean"]) / da_mem["mean"] * 100
 
-    print(f"\n{'═'*60}")
+    print(f"\n{'═'*70}")
     print(f"  Results — {curve_name}")
-    print(f"{'═'*60}")
-    print(f"  {'Metric':<28} {'Double-and-Add':>12}  {'wNAF (w=4)':>12}")
-    print(f"  {'─'*56}")
-    print(f"  {'Avg time (ms)':<28} {da['mean']:>12.4f}  {wn['mean']:>12.4f}")
-    print(f"  {'Min time (ms)':<28} {da['min']:>12.4f}  {wn['min']:>12.4f}")
-    print(f"  {'Max time (ms)':<28} {da['max']:>12.4f}  {wn['max']:>12.4f}")
-    print(f"  {'Std-dev (ms)':<28} {da['stdev']:>12.4f}  {wn['stdev']:>12.4f}")
-    print(f"  {'Avg point additions':<28} {statistics.mean(data['da_adds']):>12.1f}  {statistics.mean(data['wnaf_adds']):>12.1f}")
-    print(f"  {'Avg point doublings':<28} {statistics.mean(data['da_dubs']):>12.1f}  {statistics.mean(data['wnaf_dubs']):>12.1f}")
-    print(f"  {'─'*56}")
-    print(f"  Execution time improvement : {improvement:+.2f}%")
-    print(f"  Addition reduction         : {add_reduction:+.2f}%")
-    print(f"{'═'*60}")
+    print(f"{'═'*70}")
+    print(f"  {'Metric':<33} {'Double-and-Add':>15}  {'wNAF (w=4)':>15}")
+    print(f"  {'─'*70}")
+    print(f"  {'Avg execution time (ms)':<33} {da['mean']:>15.4f}  {wn['mean']:>15.4f}")
+    print(f"  {'Min execution time (ms)':<33} {da['min']:>15.4f}  {wn['min']:>15.4f}")
+    print(f"  {'Max execution time (ms)':<33} {da['max']:>15.4f}  {wn['max']:>15.4f}")
+    print(f"  {'Std deviation (ms)':<33} {da['stdev']:>15.4f}  {wn['stdev']:>15.4f}")
+    print(f"  {'Avg point additions':<33} {statistics.mean(data['da_adds']):>15.1f}  {statistics.mean(data['wnaf_adds']):>15.1f}")
+    print(f"  {'Avg point doublings':<33} {statistics.mean(data['da_dubs']):>15.1f}  {statistics.mean(data['wnaf_dubs']):>15.1f}")
+    print(f"  {'Avg memory usage (bytes)':<33} {da_mem['mean']:>15.1f}  {wn_mem['mean']:>15.1f}")
+    print(f"  {'─'*70}")
+    print(f"  Execution time improvement     : {time_improvement:+7.2f}%")
+    print(f"  Point addition reduction       : {add_reduction:+7.2f}%")
+    print(f"  Memory overhead (wNAF vs D-A)  : {memory_overhead:+7.2f}%")
+    print(f"{'═'*70}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,14 +389,14 @@ def print_summary(data, curve_name):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_results(data_p256, data_k1):
-    """Generate a 2×3 grid of benchmark charts and save to PNG."""
-    fig = plt.figure(figsize=(18, 10))
+    """Generate a 2×4 grid of benchmark charts and save to PNG."""
+    fig = plt.figure(figsize=(22, 10))
     fig.suptitle(
         "ECC Scalar Multiplication: Double-and-Add vs wNAF (w=4)\n"
         "Group 28 — EC6204 Information Security",
         fontsize=14, fontweight='bold'
     )
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35)
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.35)
 
     COLORS = {"da": "#E74C3C", "wnaf": "#2ECC71"}
 
@@ -388,6 +404,8 @@ def plot_results(data_p256, data_k1):
                                           (data_k1,   "secp256k1")]):
         avg_da   = statistics.mean(data["da_times"])
         avg_wnaf = statistics.mean(data["wnaf_times"])
+        avg_da_mem = statistics.mean(data["da_memory"])
+        avg_wnaf_mem = statistics.mean(data["wnaf_memory"])
 
         # Col 0 — Bar chart: average execution time
         ax0 = fig.add_subplot(gs[row, 0])
@@ -432,7 +450,20 @@ def plot_results(data_p256, data_k1):
         ax2.set_xticks(range(len(avg_ops)))
         ax2.set_xticklabels(avg_ops.keys(), rotation=15, fontsize=8)
 
-    import os
+        # Col 3 — Bar chart: average memory usage
+        ax3 = fig.add_subplot(gs[row, 3])
+        bars = ax3.bar(["Double-and-Add", "wNAF (w=4)"],
+                       [avg_da_mem, avg_wnaf_mem],
+                       color=[COLORS["da"], COLORS["wnaf"]],
+                       width=0.5, edgecolor='white')
+        for bar, val in zip(bars, [avg_da_mem, avg_wnaf_mem]):
+            ax3.text(bar.get_x() + bar.get_width() / 2,
+                     bar.get_height() + 100,
+                     f"{val:.0f} B", ha='center', va='bottom', fontsize=9)
+        ax3.set_title(f"{cname}\nAvg Memory Usage", fontsize=10)
+        ax3.set_ylabel("Memory (bytes)")
+        ax3.set_ylim(0, max(avg_da_mem, avg_wnaf_mem) * 1.25)
+
     output_dir = "outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "ecc_benchmark.png")
@@ -448,7 +479,7 @@ def plot_results(data_p256, data_k1):
 def main():
     random.seed(42)   # reproducible results
     ITERATIONS = 500
-    W = 4             # window width (optimal for 256-bit keys)
+    W = 4             # selected window width for this experiment
 
     print("=" * 60)
     print("  EC6204 — Mini Project Group 28")
@@ -470,19 +501,24 @@ def main():
     # 4. Plots
     plot_results(data_p256, data_k1)
 
-    # 5. Export CSV
+    # 5. Export CSV with all metrics including memory usage
     df = pd.DataFrame({
         "iteration"         : range(1, ITERATIONS + 1),
         "p256_da_time_ms"   : data_p256["da_times"],
         "p256_wnaf_time_ms" : data_p256["wnaf_times"],
         "p256_da_adds"      : data_p256["da_adds"],
         "p256_wnaf_adds"    : data_p256["wnaf_adds"],
+        "p256_da_memory"    : data_p256["da_memory"],
+        "p256_wnaf_memory"  : data_p256["wnaf_memory"],
         "k1_da_time_ms"     : data_k1["da_times"],
         "k1_wnaf_time_ms"   : data_k1["wnaf_times"],
         "k1_da_adds"        : data_k1["da_adds"],
         "k1_wnaf_adds"      : data_k1["wnaf_adds"],
+        "k1_da_memory"      : data_k1["da_memory"],
+        "k1_wnaf_memory"    : data_k1["wnaf_memory"],
     })
     output_dir = "outputs"
+    os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "ecc_benchmark_results.csv")
     df.to_csv(csv_path, index=False)
     print(f"  Data   saved → {csv_path}")
